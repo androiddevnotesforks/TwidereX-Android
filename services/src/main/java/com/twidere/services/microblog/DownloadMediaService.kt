@@ -20,8 +20,9 @@
  */
 package com.twidere.services.microblog
 
+import com.twidere.services.utils.ProgressListener
 import java.io.InputStream
 
 interface DownloadMediaService {
-    suspend fun download(target: String): InputStream
+    suspend fun download(target: String, progressListener: ProgressListener): InputStream
 }

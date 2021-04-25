@@ -50,6 +50,8 @@ import com.twidere.services.microblog.model.ISearchResponse
 import com.twidere.services.microblog.model.IStatus
 import com.twidere.services.microblog.model.IUser
 import com.twidere.services.microblog.model.Relationship
+import com.twidere.services.utils.ProgressListener
+import com.twidere.services.utils.ProgressResponseBody
 import com.twidere.services.utils.await
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -280,10 +282,23 @@ class MastodonService(
 
     suspend fun emojis(): List<Emoji> = resources.emojis()
 
-    override suspend fun download(target: String): InputStream {
+    override suspend fun download(target: String, progressListener: ProgressListener): InputStream {
         return OkHttpClient
             .Builder()
             .addInterceptor(AuthorizationInterceptor(BearerAuthorization(accessToken)))
+            .addNetworkInterceptor {
+                val ori = it.proceed(it.request())
+                ori.newBuilder()
+                    .body(
+                        ori.body?.let { it1 ->
+                            ProgressResponseBody(
+                                it1,
+                                progressListener = progressListener
+                            )
+                        }
+                    )
+                    .build()
+            }
             .build()
             .newCall(
                 Request

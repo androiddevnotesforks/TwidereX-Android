@@ -54,6 +54,8 @@ import com.twidere.services.twitter.model.fields.PollFields
 import com.twidere.services.twitter.model.fields.TweetFields
 import com.twidere.services.twitter.model.fields.UserFields
 import com.twidere.services.utils.Base64
+import com.twidere.services.utils.ProgressListener
+import com.twidere.services.utils.ProgressResponseBody
 import com.twidere.services.utils.await
 import com.twidere.services.utils.copyToInLength
 import com.twidere.services.utils.decodeJson
@@ -435,10 +437,23 @@ class TwitterService(
         return resources.verifyCredentials()
     }
 
-    override suspend fun download(target: String): InputStream {
+    override suspend fun download(target: String, progressListener: ProgressListener): InputStream {
         return OkHttpClient
             .Builder()
             .addInterceptor(AuthorizationInterceptor(createOAuth1Authorization()))
+            .addNetworkInterceptor {
+                val ori = it.proceed(it.request())
+                ori.newBuilder()
+                    .body(
+                        ori.body?.let { it1 ->
+                            ProgressResponseBody(
+                                it1,
+                                progressListener = progressListener
+                            )
+                        }
+                    )
+                    .build()
+            }
             .build()
             .newCall(
                 Request

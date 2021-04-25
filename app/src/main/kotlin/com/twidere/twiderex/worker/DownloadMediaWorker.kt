@@ -20,21 +20,29 @@
  */
 package com.twidere.twiderex.worker
 
+import android.app.PendingIntent
 import android.content.ContentResolver
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
 import com.twidere.services.microblog.DownloadMediaService
+import com.twidere.services.utils.ProgressListener
 import com.twidere.twiderex.R
 import com.twidere.twiderex.model.MicroBlogKey
-import com.twidere.twiderex.notification.InAppNotification
+import com.twidere.twiderex.notification.NotificationChannelSpec
 import com.twidere.twiderex.repository.AccountRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlin.math.roundToInt
+import kotlin.random.Random
 
 @HiltWorker
 class DownloadMediaWorker @AssistedInject constructor(
@@ -42,7 +50,7 @@ class DownloadMediaWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val contentResolver: ContentResolver,
     private val accountRepository: AccountRepository,
-    private val inAppNotification: InAppNotification,
+    private val notificationManagerCompat: NotificationManagerCompat,
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -75,11 +83,62 @@ class DownloadMediaWorker @AssistedInject constructor(
         if (service !is DownloadMediaService) {
             return Result.failure()
         }
-        contentResolver.openOutputStream(target)?.use {
-            service.download(target = source).copyTo(it)
-        } ?: return Result.failure()
+        val notificationId = Random.nextInt()
+        val file = DocumentFile.fromSingleUri(applicationContext, target)
+        val builder = NotificationCompat
+            .Builder(applicationContext, NotificationChannelSpec.BackgroundProgresses.id)
+            .setContentTitle(applicationContext.getString(R.string.common_alerts_media_saving_title))
+            .setSubText(file?.name)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setProgress(100, 0, false)
+        notificationManagerCompat.notify(notificationId, builder.build())
 
-        inAppNotification.show(R.string.common_controls_actions_save)
-        return Result.success()
+        try {
+            contentResolver.openOutputStream(target)?.use {
+                service.download(
+                    target = source,
+                    progressListener = object : ProgressListener {
+                        override fun update(bytesRead: Long, contentLength: Long, done: Boolean) {
+                            builder.setProgress(
+                                100,
+                                (100f * bytesRead.toFloat() / contentLength.toFloat()).roundToInt(),
+                                false
+                            )
+                            notificationManagerCompat.notify(notificationId, builder.build())
+                        }
+                    }
+                ).copyTo(it)
+            } ?: return Result.failure()
+            val intent =
+                Intent(Intent.ACTION_VIEW, target)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val pendingIntent =
+                PendingIntent.getActivity(
+                    applicationContext,
+                    0,
+                    intent,
+                    PendingIntent.FLAG_MUTABLE
+                )
+            builder.setOngoing(false)
+                .setProgress(0, 0, false)
+                .setSilent(false)
+                .setAutoCancel(true)
+                .setContentTitle(applicationContext.getString(R.string.common_alerts_media_saved_title))
+                .setContentIntent(pendingIntent)
+            notificationManagerCompat.notify(notificationId, builder.build())
+            return Result.success()
+        } catch (e: Throwable) {
+            builder.setOngoing(false)
+                .setProgress(0, 0, false)
+                .setSilent(false)
+                .setAutoCancel(true)
+                .setContentTitle(applicationContext.getString(R.string.common_alerts_media_save_fail_title))
+            notificationManagerCompat.notify(notificationId, builder.build())
+            return Result.failure()
+        }
     }
 }

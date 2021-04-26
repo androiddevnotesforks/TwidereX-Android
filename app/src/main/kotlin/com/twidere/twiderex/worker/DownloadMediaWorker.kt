@@ -98,7 +98,7 @@ class DownloadMediaWorker @AssistedInject constructor(
         notificationManagerCompat.notify(notificationId, builder.build())
 
         try {
-            contentResolver.openOutputStream(target)?.use {
+            contentResolver.openOutputStream(target)?.use { outputStream ->
                 service.download(
                     target = source,
                     progressListener = object : ProgressListener {
@@ -111,8 +111,10 @@ class DownloadMediaWorker @AssistedInject constructor(
                             notificationManagerCompat.notify(notificationId, builder.build())
                         }
                     }
-                ).copyTo(it)
-            } ?: return Result.failure()
+                ).use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            } ?: throw Error()
             val intent =
                 Intent(Intent.ACTION_VIEW, target)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
